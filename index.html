@@ -205,9 +205,12 @@
   .sbox.no{background:var(--red); border-color:var(--red); color:var(--white);}
   .sbox.pend{background:var(--white); color:var(--slate-2);}
 
+  .plist{
+    display:grid; grid-template-columns:1fr 1fr; gap:6px;
+  }
   .prow{
-    display:flex; align-items:center; gap:11px; padding:11px 12px;
-    border-radius:10px; margin-bottom:7px;
+    display:flex; align-items:center; gap:8px; padding:8px 9px;
+    border-radius:9px; min-width:0;
     border:1.5px solid var(--line); background:var(--white);
   }
   .prow.va{background:var(--green-soft); border-color:var(--green);}
@@ -216,9 +219,18 @@
   .prow.va .bar{background:var(--green);}
   .prow.no .bar{background:var(--red);}
   .pinfo{flex:1; min-width:0;}
-  .pnick{font-weight:800; font-size:15px; line-height:1.2;}
-  .pfull{font-size:11.5px; color:var(--slate-2); margin-top:1px;}
-  .ptag{font-size:11px; font-weight:700; text-align:right; flex-shrink:0; max-width:104px; line-height:1.25;}
+  .pnick{
+    font-weight:800; font-size:14px; line-height:1.2;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .ptag{
+    font-size:10.5px; font-weight:700; line-height:1.25; margin-top:2px;
+    white-space:nowrap; overflow:hidden; text-overflow:ellipsis;
+  }
+  .prow .x-btn{align-self:flex-start;}
+  @media (max-width:360px){
+    .plist{grid-template-columns:1fr;}
+  }
   .prow.va .ptag{color:var(--green);}
   .prow.no .ptag{color:var(--red);}
   .prow.pend .ptag{color:#98A0A7;}
@@ -700,22 +712,23 @@ function viewEntrenador(){
     <div class="card">
       <h3>Plantel · ${R.length} jugadores</h3>
       ${R.length === 0 ? '<div class="empty">No hay jugadores cargados.</div>' : ''}
+      <div class="plist">
       ${R.map(p => {
         const r = state.responses[pid(p)];
         const st = r ? r.status : 'pend';
         const tag = st === 'va' ? 'Confirmado' : (st === 'no' ? (r.motivo || 'No va') : 'Sin confirmar');
         return `
-          <div class="prow ${st}">
+          <div class="prow ${st}" title="${esc(fullName(p))} — ${esc(tag)}">
             <div class="bar"></div>
             <div class="pinfo">
-              <div class="pnick">${esc(p.k || fullName(p))}</div>
-              <div class="pfull">${esc(fullName(p))}</div>
+              <div class="pnick">${esc(p.k || p.n)}</div>
+              <div class="ptag">${esc(tag)}</div>
             </div>
-            <div class="ptag">${esc(tag)}</div>
             <button class="x-btn" data-del="${esc(pid(p))}" title="Quitar">✕</button>
           </div>
         `;
       }).join('')}
+      </div>
       <div class="add-row">
         <input class="textinput" id="aName" placeholder="Nombre">
         <input class="textinput" id="aSur" placeholder="Apellido">
@@ -724,12 +737,6 @@ function viewEntrenador(){
         <input class="textinput" id="aNick" placeholder="Apodo (opcional)">
         <button id="addP">Agregar</button>
       </div>
-    </div>
-
-    <div class="card">
-      <h3>Actualizar</h3>
-      <div class="hint">Las respuestas de los jugadores no aparecen solas: tocá para traer las últimas.</div>
-      <button class="btn-primary" id="refresh">Actualizar lista</button>
     </div>
 
     <div class="card">
@@ -892,18 +899,6 @@ function wire(){
     };
   });
 
-  if($('refresh')) $('refresh').onclick = async () => {
-    const btn = $('refresh');
-    btn.textContent = 'Actualizando…'; btn.disabled = true;
-    let resp = await store.get('responses:'+state.match.matchId);
-    if(resp && typeof resp === 'string'){ try{ resp = JSON.parse(resp); }catch(e){ resp = null; } }
-    state.responses = (resp && typeof resp === 'object') ? resp : {};
-    let ros = await store.get('roster');
-    if(ros && typeof ros === 'string'){ try{ ros = JSON.parse(ros); }catch(e){ ros = null; } }
-    if(Array.isArray(ros) && ros.length) state.roster = sortRoster(migrateRoster(ros));
-    render();
-  };
-
   if($('copyRem')) $('copyRem').onclick = async () => {
     const ok = await copyText(buildReminder());
     const btn = $('copyRem');
@@ -916,7 +911,51 @@ function esc(s){
   return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
-loadAll();
+/* ---------- auto-sincronización ---------- */
+let syncTimer = null;
+
+async function syncFromDB(){
+  if(!ONLINE || state.loading) return;
+  // no pisar lo que el usuario está tipeando
+  if(state.editing || state.changingPass || state.changingTeamPass || state.editingAnswer) return;
+
+  const rosterSnapshot = JSON.stringify(state.roster);
+  const matchSnapshot = JSON.stringify(state.match);
+
+  try{
+    let m = await store.get('match');
+    if(m && typeof m === 'string'){ try{ m = JSON.parse(m); }catch(e){ m = null; } }
+    if(m && m.matchId) state.match = m;
+
+    let ros = await store.get('roster');
+    if(ros && typeof ros === 'string'){ try{ ros = JSON.parse(ros); }catch(e){ ros = null; } }
+    ros = migrateRoster(ros);
+    if(Array.isArray(ros) && ros.length) state.roster = sortRoster(ros);
+
+    let resp = await store.get('responses:'+state.match.matchId);
+    if(resp && typeof resp === 'string'){ try{ resp = JSON.parse(resp); }catch(e){ resp = null; } }
+    const fresh = (resp && typeof resp === 'object') ? resp : {};
+
+    // solo redibujar si algo cambió, para no interrumpir al usuario
+    const changed = JSON.stringify(fresh) !== JSON.stringify(state.responses)
+                 || JSON.stringify(state.roster) !== rosterSnapshot
+                 || JSON.stringify(state.match) !== matchSnapshot;
+    state.responses = fresh;
+    if(changed) render();
+  }catch(e){ /* silencioso: si falla, reintenta en el próximo ciclo */ }
+}
+
+function startSync(){
+  if(syncTimer) clearInterval(syncTimer);
+  syncTimer = setInterval(syncFromDB, 20000);
+}
+
+// volver a la app tras minimizarla trae los datos al instante
+document.addEventListener('visibilitychange', () => {
+  if(document.visibilityState === 'visible') syncFromDB();
+});
+
+loadAll().then(startSync);
 </script>
 </body>
 </html>
