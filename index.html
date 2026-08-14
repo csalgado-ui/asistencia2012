@@ -57,7 +57,7 @@
     padding:4px; box-shadow:0 3px 8px rgba(0,0,0,.18);
   }
   .crest img{width:100%; height:100%; object-fit:contain; display:block; border-radius:8px;}
-  .head-top .cond-label,.head-top .cond-display{padding-right:74px;}
+  .head-top .cond-display{padding-right:74px;}
   .cond-label{
     font-size:10.5px; letter-spacing:.18em; text-transform:uppercase;
     color:rgba(255,255,255,.85); font-weight:700; margin-bottom:8px;
@@ -175,6 +175,12 @@
     margin-top:14px; padding:13px 14px; border-radius:10px;
     font-size:13.5px; font-weight:700; line-height:1.4;
   }
+  .btn-danger{
+    width:100%; margin-top:14px; padding:14px; border:none; border-radius:10px;
+    background:var(--red); color:var(--white); font-weight:800; font-size:15px;
+    cursor:pointer; font-family:inherit;
+  }
+  .btn-danger:hover{background:#B8262F;}
   .btn-secondary{
     width:100%; margin-top:10px; padding:13px; border-radius:10px;
     background:var(--white); color:var(--ink); border:1.5px solid var(--line);
@@ -378,9 +384,10 @@ const state = {
   loading:true, offline:false,
   match:null, roster:[], responses:{},
   tab:'jugador', editing:false,
-  myId:'', draft:null, draftMotivo:null, showNew:false, editingAnswer:false,
+  myId:'', draft:null, draftMotivo:null, showNew:false, editingAnswer:false, showAll:false,
   pass:null, authed:false, err:'', changingPass:false,
-  teamPass:null, teamAuthed:false, teamErr:'', changingTeamPass:false
+  teamPass:null, teamAuthed:false, teamErr:'', changingTeamPass:false,
+  confirmNuevo:false
 };
 
 function migrateRoster(list){
@@ -453,7 +460,7 @@ async function loadAll(){
 
     state.pass = await store.get('coach_pass');
     state.teamPass = await store.get('team_pass');
-    state.myId = (await store.getMine('my_id')) || '';
+    state.myId = '';
   }catch(e){
     console.error(e);
     if(!state.match){
@@ -466,12 +473,29 @@ async function loadAll(){
 }
 
 async function saveMatch(nm){
-  const changed = !state.match || state.match.fecha !== nm.fecha;
-  nm.matchId = changed ? 'm'+Date.now().toString(36) : state.match.matchId;
+  nm.matchId = state.match ? state.match.matchId : 'm'+Date.now().toString(36);
   state.match = nm;
-  if(changed) state.responses = {};
   await store.set('match', nm);
   state.editing = false;
+  render();
+}
+
+// arranca un encuentro nuevo: borra las respuestas, conserva plantel y claves
+async function nuevoEncuentro(){
+  const nm = {
+    condicion: state.match.condicion,
+    lugar: '',
+    participan: '',
+    fecha: nextSaturdayISO(),
+    hora: '',
+    matchId: 'm' + Date.now().toString(36)
+  };
+  state.match = nm;
+  state.responses = {};
+  await store.set('match', nm);
+  await store.set('responses:' + nm.matchId, {});
+  state.confirmNuevo = false;
+  state.editing = true;
   render();
 }
 async function saveRoster(){
@@ -527,7 +551,6 @@ function render(){
     <div class="head">
       <div class="head-top">
         <div class="crest"><img src="${LOGO}" alt="Escudo del club"></div>
-        <div class="cond-label">Condición</div>
         <div class="cond-display">${esc(m.condicion)}</div>
       </div>
       <div class="head-body">
@@ -604,14 +627,36 @@ function viewTeamLock(){
 function viewJugador(){
   const me = findPlayer(state.myId);
   if(!me){
+    const pend = state.roster.filter(p => !state.responses[pid(p)]);
+    const list = state.showAll ? state.roster : pend;
+    const yaVotaron = state.roster.length - pend.length;
+
+    if(!state.showAll && pend.length === 0){
+      return `
+        <div class="card">
+          <div style="text-align:center; padding:8px 0 4px;">
+            <div style="font-size:30px;">🏉</div>
+            <div style="font-weight:800; font-size:18px; margin-top:6px;">Ya respondieron todos</div>
+            <div class="hint" style="margin-top:6px;">Los ${state.roster.length} jugadores del plantel confirmaron si van o no.</div>
+          </div>
+          <button class="btn-secondary" id="showAll">Cambiar mi respuesta</button>
+        </div>
+      `;
+    }
+
     return `
       <div class="card">
         <h3>¿Quién sos?</h3>
         <select id="who">
           <option value="">Elegí tu nombre…</option>
-          ${state.roster.map(p => `<option value="${esc(pid(p))}">${esc(p.k || fullName(p))}${p.k ? ' — ' + esc(fullName(p)) : ''}</option>`).join('')}
+          ${list.map(p => `<option value="${esc(pid(p))}">${esc(p.k || fullName(p))}${p.k ? ' — ' + esc(fullName(p)) : ''}</option>`).join('')}
           <option value="__new__">No estoy en la lista</option>
         </select>
+        ${state.showAll
+          ? `<div class="hint" style="margin-top:10px;">Mostrando el plantel completo. <span class="linkish" id="showPend">Ver solo los que faltan</span></div>`
+          : (yaVotaron > 0
+              ? `<div class="hint" style="margin-top:10px;">${yaVotaron} ${yaVotaron === 1 ? 'jugador ya respondió y no aparece' : 'jugadores ya respondieron y no aparecen'}. <span class="linkish" id="showAll">¿Querés cambiar tu respuesta?</span></div>`
+              : '')}
         ${state.showNew ? `
           <div style="margin-top:12px; display:flex; flex-direction:column; gap:8px;">
             <input class="textinput" id="nName" placeholder="Nombre">
@@ -640,6 +685,7 @@ function viewJugador(){
           <div class="sub">${r.status === 'va' ? 'Tu asistencia está confirmada 🏉' : esc(r.motivo)}</div>
         </div>
         <button class="btn-primary" id="changeAns">Cambiar respuesta</button>
+        <button class="btn-secondary" id="doneAns">Listo</button>
       </div>
     `;
   }
@@ -710,6 +756,18 @@ function viewEntrenador(){
     </div>
 
     <div class="card">
+      <h3>Nuevo encuentro</h3>
+      ${state.confirmNuevo ? `
+        <div class="hint" style="color:var(--ink); font-weight:600;">Se borran las ${va + no} respuestas de este encuentro y todos vuelven a "sin confirmar". El plantel y las claves no se tocan.</div>
+        <button class="btn-danger" id="nuevoSi">Sí, empezar de cero</button>
+        <button class="btn-secondary" id="nuevoNo">Cancelar</button>
+      ` : `
+        <div class="hint">Para el sábado que viene: limpia todas las respuestas y te deja cargar los datos del nuevo partido.</div>
+        <button class="btn-primary" id="nuevoEnc">Empezar encuentro nuevo</button>
+      `}
+    </div>
+
+    <div class="card">
       <h3>Plantel · ${R.length} jugadores</h3>
       ${R.length === 0 ? '<div class="empty">No hay jugadores cargados.</div>' : ''}
       <div class="plist">
@@ -729,7 +787,11 @@ function viewEntrenador(){
         `;
       }).join('')}
       </div>
-      <div class="add-row">
+    </div>
+
+    <div class="card">
+      <h3>Agregar jugador</h3>
+      <div class="add-row" style="margin-top:0;">
         <input class="textinput" id="aName" placeholder="Nombre">
         <input class="textinput" id="aSur" placeholder="Apellido">
       </div>
@@ -809,6 +871,9 @@ function wire(){
     state.showNew = false;
     render();
   };
+  if($('showAll')) $('showAll').onclick = () => { state.showAll = true; render(); };
+  if($('showPend')) $('showPend').onclick = () => { state.showAll = false; render(); };
+
   if($('addMe')) $('addMe').onclick = async () => {
     const n = $('nName').value.trim(), a = $('nSur').value.trim(), k = $('nNick').value.trim();
     if(!n || !a) return;
@@ -839,6 +904,11 @@ function wire(){
     render();
   };
   if($('cancelAns')) $('cancelAns').onclick = () => { state.editingAnswer = false; render(); };
+  if($('doneAns')) $('doneAns').onclick = () => {
+    state.myId = ''; state.draft = null; state.draftMotivo = null;
+    state.editingAnswer = false; state.showAll = false;
+    render();
+  };
 
   if($('setPass')) $('setPass').onclick = async () => {
     const a = $('p1').value.trim(), b = $('p2').value.trim();
@@ -883,6 +953,10 @@ function wire(){
   };
 
   if($('lock')) $('lock').onclick = () => { state.authed=false; state.changingPass=false; state.editing=false; render(); };
+
+  if($('nuevoEnc')) $('nuevoEnc').onclick = () => { state.confirmNuevo = true; render(); };
+  if($('nuevoNo')) $('nuevoNo').onclick = () => { state.confirmNuevo = false; render(); };
+  if($('nuevoSi')) $('nuevoSi').onclick = nuevoEncuentro;
 
   if($('addP')) $('addP').onclick = async () => {
     const n = $('aName').value.trim(), a = $('aSur').value.trim(), k = $('aNick').value.trim();
