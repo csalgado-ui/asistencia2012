@@ -87,6 +87,17 @@
     font-size:13px; font-weight:600; cursor:pointer; font-family:inherit;
   }
   .edit-btn:hover{background:rgba(255,255,255,.08);}
+  .btn-pair{display:flex; gap:8px; margin-top:14px;}
+  .btn-pair .edit-btn{margin-top:0; flex:1; padding:9px 4px; font-size:12.5px;}
+  .edit-btn.nuevo{border-color:var(--yellow); color:var(--yellow);}
+  .edit-btn.nuevo:hover{background:rgba(245,197,24,.12);}
+  .edit-btn.danger{border-color:var(--red); background:var(--red); color:var(--white);}
+  .edit-btn.danger:hover{background:#B8262F;}
+  .confirm-nuevo{
+    margin-top:12px; padding:12px; border-radius:9px;
+    background:rgba(214,48,58,.12); border:1px solid rgba(214,48,58,.4);
+  }
+  .cn-text{font-size:12.5px; color:var(--white); line-height:1.45;}
 
   .eform{margin-top:14px; display:flex; flex-direction:column; gap:12px;}
   .eform label{
@@ -572,7 +583,19 @@ function render(){
         </div>
 
         ${showEdit ? `
-          <button class="edit-btn" id="toggleEdit">${state.editing ? 'Cerrar edición' : 'Editar encuentro'}</button>
+          <div class="btn-pair">
+            <button class="edit-btn" id="toggleEdit">${state.editing ? 'Cerrar edición' : 'Editar encuentro'}</button>
+            <button class="edit-btn nuevo" id="nuevoEnc">Nuevo encuentro</button>
+          </div>
+          ${state.confirmNuevo ? `
+            <div class="confirm-nuevo">
+              <div class="cn-text">Se borran las respuestas de este encuentro y todos vuelven a "sin confirmar". El plantel y las claves no se tocan.</div>
+              <div class="btn-pair">
+                <button class="edit-btn danger" id="nuevoSi">Sí, empezar de cero</button>
+                <button class="edit-btn" id="nuevoNo">Cancelar</button>
+              </div>
+            </div>
+          ` : ''}
           ${state.editing ? `
             <div class="eform">
               <div>
@@ -756,18 +779,6 @@ function viewEntrenador(){
     </div>
 
     <div class="card">
-      <h3>Nuevo encuentro</h3>
-      ${state.confirmNuevo ? `
-        <div class="hint" style="color:var(--ink); font-weight:600;">Se borran las ${va + no} respuestas de este encuentro y todos vuelven a "sin confirmar". El plantel y las claves no se tocan.</div>
-        <button class="btn-danger" id="nuevoSi">Sí, empezar de cero</button>
-        <button class="btn-secondary" id="nuevoNo">Cancelar</button>
-      ` : `
-        <div class="hint">Para el sábado que viene: limpia todas las respuestas y te deja cargar los datos del nuevo partido.</div>
-        <button class="btn-primary" id="nuevoEnc">Empezar encuentro nuevo</button>
-      `}
-    </div>
-
-    <div class="card">
       <h3>Plantel · ${R.length} jugadores</h3>
       ${R.length === 0 ? '<div class="empty">No hay jugadores cargados.</div>' : ''}
       <div class="plist">
@@ -790,6 +801,12 @@ function viewEntrenador(){
     </div>
 
     <div class="card">
+      <h3>Recordatorio</h3>
+      <div class="hint">Copiá el mensaje con los que faltan confirmar y pegalo en el grupo de WhatsApp.</div>
+      <button class="btn-primary" id="copyRem">Copiar recordatorio</button>
+    </div>
+
+    <div class="card">
       <h3>Agregar jugador</h3>
       <div class="add-row" style="margin-top:0;">
         <input class="textinput" id="aName" placeholder="Nombre">
@@ -799,12 +816,6 @@ function viewEntrenador(){
         <input class="textinput" id="aNick" placeholder="Apodo (opcional)">
         <button id="addP">Agregar</button>
       </div>
-    </div>
-
-    <div class="card">
-      <h3>Recordatorio</h3>
-      <div class="hint">Copiá el mensaje con los que faltan confirmar y pegalo en el grupo de WhatsApp.</div>
-      <button class="btn-primary" id="copyRem">Copiar recordatorio</button>
     </div>
 
     <div class="card">
