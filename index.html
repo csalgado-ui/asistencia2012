@@ -129,8 +129,9 @@
   /* ===== TABS ===== */
   .tabs{display:flex; gap:8px; margin:16px 0 14px;}
   .tab{
-    flex:1; padding:11px 6px; border-radius:9px; cursor:pointer;
-    font-size:13.5px; font-weight:700; font-family:inherit;
+    flex:1; padding:11px 4px; border-radius:9px; cursor:pointer;
+    font-size:13px; font-weight:700; font-family:inherit;
+    white-space:nowrap;
     background:var(--white); border:1.5px solid var(--line); color:var(--slate-2);
   }
   .tab.active{background:var(--ink); border-color:var(--ink); color:var(--white);}
@@ -221,6 +222,19 @@
   .sbox.va{background:var(--green); border-color:var(--green); color:var(--white);}
   .sbox.no{background:var(--red); border-color:var(--red); color:var(--white);}
   .sbox.pend{background:var(--white); color:var(--slate-2);}
+  .sbox{cursor:pointer; transition:transform .08s, box-shadow .12s; user-select:none;}
+  .sbox:active{transform:scale(.97);}
+  .sbox.dim{opacity:.42;}
+  .sbox.sel{box-shadow:0 0 0 3px var(--ink); }
+  .filter-note{
+    display:flex; align-items:center; gap:8px; margin-bottom:10px;
+    font-size:12.5px; color:var(--slate-2); font-weight:600;
+  }
+  .filter-note button{
+    margin-left:auto; background:var(--ink); color:var(--white); border:none;
+    border-radius:16px; padding:6px 12px; font-size:12px; font-weight:700;
+    cursor:pointer; font-family:inherit;
+  }
 
   .plist{
     display:grid; grid-template-columns:1fr 1fr; gap:6px;
@@ -398,7 +412,8 @@ const state = {
   myId:'', draft:null, draftMotivo:null, showNew:false, editingAnswer:false, showAll:false,
   pass:null, authed:false, err:'', changingPass:false,
   teamPass:null, teamAuthed:false, teamErr:'', changingTeamPass:false,
-  confirmNuevo:false
+  confirmNuevo:false,
+  filtro:null   // null = todos | 'va' | 'no' | 'pend'
 };
 
 function migrateRoster(list){
@@ -620,7 +635,7 @@ function render(){
 
     <div class="tabs">
       <button class="tab ${state.tab==='jugador'?'active':''}" id="tabJ">Soy jugador</button>
-      <button class="tab ${state.tab==='entrenador'?'active':''}" id="tabE">Entrenador</button>
+      <button class="tab ${state.tab==='entrenador'?'active':''}" id="tabE">Entrenador / Capitán</button>
     </div>
 
     ${state.offline ? '<div class="warn">Sin conexión con la base de datos. Los cambios no se están guardando para el resto del equipo. Revisá tu conexión y recargá la página.</div>' : ''}
@@ -647,6 +662,70 @@ function viewTeamLock(){
   `;
 }
 
+const FILTRO_LABEL = { va:'confirmados', no:'ausentes', pend:'sin confirmar' };
+
+function statusOf(p){
+  const r = state.responses[pid(p)];
+  return r ? r.status : 'pend';
+}
+function filtrados(){
+  if(!state.filtro) return state.roster;
+  return state.roster.filter(p => statusOf(p) === state.filtro);
+}
+function summaryBar(va, no, pend){
+  const cls = k => 'sbox ' + k + (state.filtro === k ? ' sel' : (state.filtro ? ' dim' : ''));
+  return `
+    <div class="summary">
+      <div class="${cls('va')}" data-filtro="va"><span class="n">${va}</span><span class="l">Confirmados</span></div>
+      <div class="${cls('no')}" data-filtro="no"><span class="n">${no}</span><span class="l">Ausentes</span></div>
+      <div class="${cls('pend')}" data-filtro="pend"><span class="n">${pend}</span><span class="l">Faltan</span></div>
+    </div>
+  `;
+}
+function filterNote(n){
+  if(!state.filtro) return '';
+  return `
+    <div class="filter-note">
+      <span>Mostrando ${n} ${FILTRO_LABEL[state.filtro]}</span>
+      <button id="clearFiltro">Ver todos</button>
+    </div>
+  `;
+}
+
+function rosterBoard(){
+  const R = state.roster;
+  const va = R.filter(p => state.responses[pid(p)]?.status === 'va').length;
+  const no = R.filter(p => state.responses[pid(p)]?.status === 'no').length;
+  const pend = R.length - va - no;
+
+  const L = filtrados();
+  return `
+    ${summaryBar(va, no, pend)}
+
+    <div class="card">
+      <h3>Cómo viene el equipo</h3>
+      ${filterNote(L.length)}
+      ${L.length === 0 ? '<div class="empty">Nadie en esta categoría.</div>' : ''}
+      <div class="plist">
+      ${L.map(p => {
+        const r = state.responses[pid(p)];
+        const st = r ? r.status : 'pend';
+        const tag = st === 'va' ? 'Confirmado' : (st === 'no' ? (r.motivo || 'No va') : 'Sin confirmar');
+        return `
+          <div class="prow ${st}" title="${esc(fullName(p))} — ${esc(tag)}">
+            <div class="bar"></div>
+            <div class="pinfo">
+              <div class="pnick">${esc(p.k || p.n)}</div>
+              <div class="ptag">${esc(tag)}</div>
+            </div>
+          </div>
+        `;
+      }).join('')}
+      </div>
+    </div>
+  `;
+}
+
 function viewJugador(){
   const me = findPlayer(state.myId);
   if(!me){
@@ -664,6 +743,7 @@ function viewJugador(){
           </div>
           <button class="btn-secondary" id="showAll">Cambiar mi respuesta</button>
         </div>
+        ${rosterBoard()}
       `;
     }
 
@@ -689,6 +769,7 @@ function viewJugador(){
           </div>
         ` : ''}
       </div>
+      ${rosterBoard()}
     `;
   }
   const r = state.responses[state.myId];
@@ -710,6 +791,7 @@ function viewJugador(){
         <button class="btn-primary" id="changeAns">Cambiar respuesta</button>
         <button class="btn-secondary" id="doneAns">Listo</button>
       </div>
+      ${rosterBoard()}
     `;
   }
 
@@ -734,6 +816,7 @@ function viewJugador(){
       <button class="btn-primary" id="send" ${ready ? '' : 'disabled'}>Guardar respuesta</button>
       ${r ? `<button class="btn-secondary" id="cancelAns">Cancelar</button>` : ''}
     </div>
+    ${rosterBoard()}
   `;
 }
 
@@ -743,7 +826,7 @@ function viewLock(){
       <div class="lock">
         <div class="ic">🔐</div>
         <h3>Creá la clave</h3>
-        <p>La vas a necesitar cada vez que entres a la vista del entrenador.</p>
+        <p>La vas a necesitar cada vez que entres a la vista del entrenador o capitán.</p>
         <input type="password" id="p1" placeholder="Nueva clave">
         <input type="password" id="p2" placeholder="Repetí la clave">
         ${state.err ? `<div class="err">${esc(state.err)}</div>` : ''}
@@ -755,7 +838,7 @@ function viewLock(){
   return `
     <div class="lock">
       <div class="ic">🔒</div>
-      <h3>Vista del entrenador</h3>
+      <h3>Vista del entrenador / capitán</h3>
       <p>Ingresá la clave para ver y editar la planilla.</p>
       <input type="password" id="pIn" placeholder="Clave">
       ${state.err ? `<div class="err">${esc(state.err)}</div>` : ''}
@@ -771,18 +854,17 @@ function viewEntrenador(){
   const no = R.filter(p => state.responses[pid(p)]?.status === 'no').length;
   const pend = R.length - va - no;
 
+  const L = filtrados();
   return `
-    <div class="summary">
-      <div class="sbox va"><span class="n">${va}</span><span class="l">Confirmados</span></div>
-      <div class="sbox no"><span class="n">${no}</span><span class="l">Ausentes</span></div>
-      <div class="sbox pend"><span class="n">${pend}</span><span class="l">Faltan</span></div>
-    </div>
+    ${summaryBar(va, no, pend)}
 
     <div class="card">
       <h3>Plantel · ${R.length} jugadores</h3>
+      ${filterNote(L.length)}
       ${R.length === 0 ? '<div class="empty">No hay jugadores cargados.</div>' : ''}
+      ${R.length > 0 && L.length === 0 ? '<div class="empty">Nadie en esta categoría.</div>' : ''}
       <div class="plist">
-      ${R.map(p => {
+      ${L.map(p => {
         const r = state.responses[pid(p)];
         const st = r ? r.status : 'pend';
         const tag = st === 'va' ? 'Confirmado' : (st === 'no' ? (r.motivo || 'No va') : 'Sin confirmar');
@@ -819,7 +901,7 @@ function viewEntrenador(){
     </div>
 
     <div class="card">
-      <div class="foot-link" id="togglePass">Cambiar clave del entrenador</div>
+      <div class="foot-link" id="togglePass">Cambiar clave del entrenador / capitán</div>
       ${state.changingPass ? `
         <div class="passbox">
           <label>Nueva clave</label>
@@ -964,6 +1046,15 @@ function wire(){
   };
 
   if($('lock')) $('lock').onclick = () => { state.authed=false; state.changingPass=false; state.editing=false; render(); };
+
+  document.querySelectorAll('[data-filtro]').forEach(el => {
+    el.onclick = () => {
+      const f = el.getAttribute('data-filtro');
+      state.filtro = (state.filtro === f) ? null : f;
+      render();
+    };
+  });
+  if($('clearFiltro')) $('clearFiltro').onclick = () => { state.filtro = null; render(); };
 
   if($('nuevoEnc')) $('nuevoEnc').onclick = () => { state.confirmNuevo = true; render(); };
   if($('nuevoNo')) $('nuevoNo').onclick = () => { state.confirmNuevo = false; render(); };
