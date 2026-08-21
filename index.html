@@ -268,6 +268,16 @@
   .x-btn{border:none; background:none; color:#B4BBC1; font-size:15px; cursor:pointer; padding:2px 0 2px 4px; line-height:1;}
   .x-btn:hover{color:var(--ink);}
 
+  .editbox{
+    background:var(--blue-soft); border:1.5px solid var(--blue);
+    border-radius:11px; padding:13px; margin-bottom:12px;
+  }
+  .editbox-title{font-size:12.5px; font-weight:800; color:var(--blue-dark); margin-bottom:10px;}
+  .btn-ghost-sm{
+    padding:0 14px; border-radius:9px; background:var(--white);
+    border:1.5px solid var(--line); color:var(--slate); font-weight:700;
+    cursor:pointer; font-family:inherit; font-size:14px;
+  }
   .add-row{display:flex; gap:8px; margin-top:10px;}
   .add-row input{flex:1; min-width:0;}
   .add-row button{
@@ -413,7 +423,8 @@ const state = {
   pass:null, authed:false, err:'', changingPass:false,
   teamPass:null, teamAuthed:false, teamErr:'', changingTeamPass:false,
   confirmNuevo:false,
-  filtro:null   // null = todos | 'va' | 'no' | 'pend'
+  filtro:null,  // null = todos | 'va' | 'no' | 'pend'
+  editPlayer:null, editErr:''
 };
 
 function migrateRoster(list){
@@ -524,6 +535,31 @@ async function nuevoEncuentro(){
   state.editing = true;
   render();
 }
+async function savePlayerEdit(oldId, n, a, k){
+  const idx = state.roster.findIndex(x => pid(x) === oldId);
+  if(idx === -1) return 'No se encontró al jugador.';
+
+  const nuevo = { n, a, k };
+  const nuevoId = pid(nuevo);
+
+  // no permitir duplicados con OTRO jugador
+  if(nuevoId !== oldId && state.roster.some(x => pid(x) === nuevoId)){
+    return 'Ya hay otro jugador con ese nombre y apellido.';
+  }
+
+  state.roster[idx] = nuevo;
+
+  // si cambió nombre o apellido, mover la respuesta al id nuevo
+  if(nuevoId !== oldId && state.responses[oldId]){
+    state.responses[nuevoId] = state.responses[oldId];
+    delete state.responses[oldId];
+    await saveResponses();
+  }
+
+  await saveRoster();
+  return null;
+}
+
 async function saveRoster(){
   state.roster = sortRoster(state.roster);
   await store.set('roster', state.roster);
@@ -848,6 +884,28 @@ function viewLock(){
   `;
 }
 
+function editPlayerForm(){
+  const p = findPlayer(state.editPlayer);
+  if(!p) return '';
+  return `
+    <div class="editbox">
+      <div class="editbox-title">Editando a ${esc(p.k || fullName(p))}</div>
+      <div class="add-row" style="margin-top:0;">
+        <input class="textinput" id="eName" value="${esc(p.n)}" placeholder="Nombre">
+        <input class="textinput" id="eSur" value="${esc(p.a)}" placeholder="Apellido">
+      </div>
+      <div class="add-row">
+        <input class="textinput" id="eNick" value="${esc(p.k || '')}" placeholder="Apodo (opcional)">
+      </div>
+      ${state.editErr ? `<div class="err" style="margin:8px 0 0;">${esc(state.editErr)}</div>` : ''}
+      <div class="add-row">
+        <button id="saveEdit" style="flex:1;">Guardar</button>
+        <button id="cancelEdit" class="btn-ghost-sm">Cancelar</button>
+      </div>
+    </div>
+  `;
+}
+
 function viewEntrenador(){
   const R = state.roster;
   const va = R.filter(p => state.responses[pid(p)]?.status === 'va').length;
@@ -860,6 +918,7 @@ function viewEntrenador(){
 
     <div class="card">
       <h3>Plantel · ${R.length} jugadores</h3>
+      ${state.editPlayer ? editPlayerForm() : ''}
       ${filterNote(L.length)}
       ${R.length === 0 ? '<div class="empty">No hay jugadores cargados.</div>' : ''}
       ${R.length > 0 && L.length === 0 ? '<div class="empty">Nadie en esta categoría.</div>' : ''}
@@ -875,6 +934,7 @@ function viewEntrenador(){
               <div class="pnick">${esc(p.k || p.n)}</div>
               <div class="ptag">${esc(tag)}</div>
             </div>
+            <button class="x-btn" data-edit="${esc(pid(p))}" title="Editar">✎</button>
             <button class="x-btn" data-del="${esc(pid(p))}" title="Quitar">✕</button>
           </div>
         `;
@@ -1067,6 +1127,23 @@ function wire(){
     if(!state.roster.some(x => pid(x) === pid(p))){ state.roster.push(p); await saveRoster(); }
     render();
   };
+  document.querySelectorAll('[data-edit]').forEach(b => {
+    b.onclick = () => {
+      state.editPlayer = b.getAttribute('data-edit');
+      state.editErr = '';
+      render();
+    };
+  });
+  if($('cancelEdit')) $('cancelEdit').onclick = () => { state.editPlayer = null; state.editErr=''; render(); };
+  if($('saveEdit')) $('saveEdit').onclick = async () => {
+    const n = $('eName').value.trim(), a = $('eSur').value.trim(), k = $('eNick').value.trim();
+    if(!n || !a){ state.editErr = 'Nombre y apellido no pueden quedar vacíos.'; render(); return; }
+    const err = await savePlayerEdit(state.editPlayer, n, a, k);
+    if(err){ state.editErr = err; render(); return; }
+    state.editPlayer = null; state.editErr = '';
+    render();
+  };
+
   document.querySelectorAll('[data-del]').forEach(b => {
     b.onclick = async () => {
       const id = b.getAttribute('data-del');
@@ -1093,7 +1170,7 @@ let syncTimer = null;
 async function syncFromDB(){
   if(!ONLINE || state.loading) return;
   // no pisar lo que el usuario está tipeando
-  if(state.editing || state.changingPass || state.changingTeamPass || state.editingAnswer) return;
+  if(state.editing || state.changingPass || state.changingTeamPass || state.editingAnswer || state.editPlayer) return;
 
   const rosterSnapshot = JSON.stringify(state.roster);
   const matchSnapshot = JSON.stringify(state.match);
