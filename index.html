@@ -1015,7 +1015,6 @@ function viewJugador(){
         <select id="who">
           <option value="">Elegí tu nombre…</option>
           ${list.map(p => `<option value="${esc(pid(p))}">${esc(p.k || fullName(p))}${p.k ? ' — ' + esc(fullName(p)) : ''}</option>`).join('')}
-          <option value="__new__">No estoy en la lista</option>
         </select>
         ${state.showAll
           ? `<div class="hint" style="margin-top:10px;">Mostrando el plantel completo. <span class="linkish" id="showPend">Ver solo los que faltan</span></div>`
